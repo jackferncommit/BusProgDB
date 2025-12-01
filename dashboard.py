@@ -24,9 +24,9 @@ from sklearn.metrics import (
 st.set_page_config(page_title="Credit Card Fraud Dashboard", layout="wide")
 st.title("💳 Credit Card Fraud Detection Dashboard")
 st.write("Dataset automatically loaded from Kaggle. No upload required.")
-st.write("DEBUG SECRET CHECK — DO NOT DEPLOY WITH THIS!")
-st.write("KAGGLE_USERNAME exists:", "KAGGLE_USERNAME" in st.secrets)
-st.write("KAGGLE_KEY exists:", "KAGGLE_KEY" in st.secrets)
+st.write("!")
+st.write("!" in st.secrets)
+st.write("!,!" in st.secrets)
 
 # ------------------------------------------------------
 # Function: Download dataset from Kaggle (Fully Correct)
