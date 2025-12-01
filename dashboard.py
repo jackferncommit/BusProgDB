@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import os
 import zipfile
 import subprocess
+import json
 
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
@@ -25,37 +26,45 @@ st.title("💳 Credit Card Fraud Detection Dashboard")
 st.write("Dataset automatically loaded from Kaggle. No upload required.")
 
 # ------------------------------------------------------
-# Function: Download dataset from Kaggle
+# Function: Download dataset from Kaggle (Fully Correct)
 # ------------------------------------------------------
 @st.cache_data
 def load_data():
-    kaggle_dataset = "mlg-ulb/creditcardfraud"   # The REAL dataset behind your link
+    kaggle_dataset = "mlg-ulb/creditcardfraud"   # Official dataset ID
     csv_path = "creditcard.csv"
 
-    # If already downloaded, load it
+    # Already downloaded?
     if os.path.exists(csv_path):
         return pd.read_csv(csv_path)
 
-    # If not, download from Kaggle
-    st.info("Downloading dataset from Kaggle… (first time only)")
+    st.info("Downloading dataset from Kaggle… (first time only, please wait)")
 
-    # Write Kaggle token from Streamlit Secrets
-    os.makedirs(os.path.expanduser("~/.kaggle"), exist_ok=True)
-    with open(os.path.expanduser("~/.kaggle/kaggle.json"), "w") as f:
-        f.write(st.secrets["kaggle"]["token"])
+    # --- Create ~/.kaggle directory ---
+    kaggle_dir = os.path.expanduser("~/.kaggle")
+    os.makedirs(kaggle_dir, exist_ok=True)
 
-    # Set correct permissions
-    os.chmod(os.path.expanduser("~/.kaggle/kaggle.json"), 0o600)
+    # --- Build correct kaggle.json using Streamlit secrets ---
+    kaggle_json_path = os.path.join(kaggle_dir, "kaggle.json")
 
-    # Download dataset ZIP
+    kaggle_credentials = {
+        "username": st.secrets["KAGGLE_USERNAME"],
+        "key": st.secrets["KAGGLE_KEY"]
+    }
+
+    with open(kaggle_json_path, "w") as f:
+        json.dump(kaggle_credentials, f)
+
+    # Correct permissions (required by Kaggle)
+    os.chmod(kaggle_json_path, 0o600)
+
+    # --- Download ZIP from Kaggle ---
     subprocess.run(
         ["kaggle", "datasets", "download", "-d", kaggle_dataset],
         check=True
     )
 
-    # Unzip it
+    # --- Unzip the dataset ---
     zip_name = kaggle_dataset.split("/")[-1] + ".zip"
-
     with zipfile.ZipFile(zip_name, "r") as z:
         z.extractall(".")
 
@@ -67,7 +76,7 @@ def load_data():
 try:
     df = load_data()
 except Exception as e:
-    st.error("❌ Failed to download dataset. Make sure your Kaggle API token is installed in Streamlit Secrets.")
+    st.error("❌ Failed to download dataset. Check your Streamlit Secrets formatting.")
     st.stop()
 
 # Sidebar Overview
