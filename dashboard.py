@@ -75,7 +75,13 @@ def load_data():
     # Import after env is set so the client picks up our user agent and config.
     from kaggle.api.kaggle_api_extended import KaggleApi
 
-    api = KaggleApi(user_agent=USER_AGENT)
+    api = KaggleApi()
+    # Set user agent before auth to avoid None header issues.
+    try:
+        api.user_agent = USER_AGENT
+        api.config_values["user_agent"] = USER_AGENT
+    except Exception:
+        pass
     api.authenticate()
 
     # Double-ensure the session headers include a non-None User-Agent
