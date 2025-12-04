@@ -58,7 +58,10 @@ def resolve_kaggle_credentials():
     key = get_secret("KAGGLE_KEY")
 
     if api_token:
-        return {"token": str(api_token).strip()}, "token"
+        if not username:
+            raise RuntimeError("KAGGLE_API_TOKEN is set but KAGGLE_USERNAME is missing.")
+        # Kaggle CLI still expects username/key fields; key can be the new PAT.
+        return {"username": str(username).strip(), "key": str(api_token).strip()}, "token"
     if username and key:
         return {"username": str(username).strip(), "key": str(key).strip()}, "legacy"
 
@@ -87,11 +90,9 @@ def write_kaggle_config(creds: dict):
     os.environ["KAGGLE_USER_AGENT"] = KAGGLE_USER_AGENT
 
     if "token" in creds:
-        os.environ["KAGGLE_API_TOKEN"] = creds["token"]
-        os.environ.pop("KAGGLE_USERNAME", None)
-        os.environ.pop("KAGGLE_KEY", None)
-    else:
-        os.environ["KAGGLE_USERNAME"] = creds["username"]
+        os.environ["KAGGLE_API_TOKEN"] = creds["key"]
+    os.environ["KAGGLE_USERNAME"] = creds.get("username", "")
+    if "key" in creds:
         os.environ["KAGGLE_KEY"] = creds["key"]
 
     return kaggle_json_path
@@ -107,6 +108,7 @@ st.write("Secrets loaded:", secrets_loaded)
 st.write("Has KAGGLE_USERNAME:", has_secret("KAGGLE_USERNAME"))
 st.write("Has KAGGLE_KEY:", has_secret("KAGGLE_KEY"))
 st.write("Has KAGGLE_API_TOKEN:", has_secret("KAGGLE_API_TOKEN"))
+st.caption("Tip: set KAGGLE_API_TOKEN and KAGGLE_USERNAME together; legacy KAGGLE_KEY can be left blank when using the token.")
 
 
 # ------------------------------------------------------
@@ -122,6 +124,7 @@ def load_data():
 
     api = KaggleApi()
     # Ensure user_agent is set before authenticate to avoid None header errors.
+    api.user_agent = KAGGLE_USER_AGENT
     api.config_values["user_agent"] = KAGGLE_USER_AGENT
     try:
         api._session.headers.update({"User-Agent": KAGGLE_USER_AGENT})
