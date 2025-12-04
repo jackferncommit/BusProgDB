@@ -24,31 +24,31 @@ from sklearn.metrics import (
 st.set_page_config(page_title="Credit Card Fraud Dashboard", layout="wide")
 st.title("💳 Credit Card Fraud Detection Dashboard")
 st.write("Dataset automatically loaded from Kaggle. No upload required.")
+
+# Debug Secret State
 st.write("Secrets loaded:", bool(st.secrets))
 st.write("Has KAGGLE_USERNAME:", "KAGGLE_USERNAME" in st.secrets)
 st.write("Has KAGGLE_KEY:", "KAGGLE_KEY" in st.secrets)
 
 # ------------------------------------------------------
-# Function: Download dataset from Kaggle (Fully Correct)
+# Function: Download dataset from Kaggle
 # ------------------------------------------------------
 @st.cache_data
 def load_data():
-    kaggle_dataset = "mlg-ulb/creditcardfraud"   # Official dataset ID
+    kaggle_dataset = "mlg-ulb/creditcardfraud"   # Official dataset
     csv_path = "creditcard.csv"
 
-    # Already downloaded?
+    # If already downloaded, just load it
     if os.path.exists(csv_path):
         return pd.read_csv(csv_path)
 
     st.info("Downloading dataset from Kaggle… (first time only, please wait)")
 
-    # --- Create ~/.kaggle directory ---
+    # Create Kaggle credentials file
     kaggle_dir = os.path.expanduser("~/.kaggle")
     os.makedirs(kaggle_dir, exist_ok=True)
 
-    # --- Build correct kaggle.json using Streamlit secrets ---
     kaggle_json_path = os.path.join(kaggle_dir, "kaggle.json")
-
     kaggle_credentials = {
         "username": st.secrets["KAGGLE_USERNAME"],
         "key": st.secrets["KAGGLE_KEY"]
@@ -57,21 +57,23 @@ def load_data():
     with open(kaggle_json_path, "w") as f:
         json.dump(kaggle_credentials, f)
 
-    # Correct permissions (required by Kaggle)
     os.chmod(kaggle_json_path, 0o600)
 
-    # --- Download ZIP from Kaggle ---
+    st.write("Kaggle JSON Exists:", os.path.exists(kaggle_json_path))
+
+    # Download using Python module (works on Streamlit Cloud)
     subprocess.run(
-        ["kaggle", "datasets", "download", "-d", kaggle_dataset],
+        ["python3", "-m", "kaggle", "datasets", "download", "-d", kaggle_dataset, "-p", "."],
         check=True
     )
 
-    # --- Unzip the dataset ---
+    # Extract dataset
     zip_name = kaggle_dataset.split("/")[-1] + ".zip"
     with zipfile.ZipFile(zip_name, "r") as z:
         z.extractall(".")
 
     return pd.read_csv(csv_path)
+
 
 # ------------------------------------------------------
 # Load the dataset
@@ -79,7 +81,8 @@ def load_data():
 try:
     df = load_data()
 except Exception as e:
-    st.error("❌ Failed to download dataset. Check your Streamlit Secrets formatting.")
+    st.error("❌ Failed to download or load dataset. Check Streamlit Secrets and Kaggle credentials.")
+    st.write("Error details:", str(e))
     st.stop()
 
 # Sidebar Overview
@@ -96,9 +99,7 @@ st.header("📦 General Dataset Insights")
 
 colA, colB = st.columns(2)
 
-# ------------------------------------------------------
-# Fraud vs Non-Fraud
-# ------------------------------------------------------
+# Fraud count
 with colA:
     st.subheader("📊 Fraud vs Non-Fraud Count")
     fig1, ax1 = plt.subplots(figsize=(7,4))
@@ -107,30 +108,24 @@ with colA:
     ax1.set_title("Fraud Distribution")
     st.pyplot(fig1)
 
-# ------------------------------------------------------
-# Amount boxplot
-# ------------------------------------------------------
+# Boxplot
 with colB:
-    st.subheader("💲 Amount Distribution by Class (Boxplot)")
+    st.subheader("💲 Amount Distribution by Class")
     fig_box, ax_box = plt.subplots(figsize=(7,4))
     sns.boxplot(data=df, x="Class", y="Amount", ax=ax_box)
     ax_box.set_xticklabels(["Non-Fraud", "Fraud"])
     st.pyplot(fig_box)
 
-# ------------------------------------------------------
-# KDE Amount Distribution
-# ------------------------------------------------------
-st.subheader("💲 Transaction Amount Density (Fraud vs Non-Fraud)")
+# KDE Amount
+st.subheader("💲 Transaction Amount Density")
 fig2, ax2 = plt.subplots(figsize=(8,4))
 sns.kdeplot(df[df["Class"] == 0]["Amount"], label="Non-Fraud", shade=True)
 sns.kdeplot(df[df["Class"] == 1]["Amount"], label="Fraud", shade=True, color="red")
 ax2.legend()
 st.pyplot(fig2)
 
-# ------------------------------------------------------
-# Time of Day Distribution
-# ------------------------------------------------------
-st.subheader("⏱ Fraud vs Non-Fraud by Time of Day")
+# Time KDE
+st.subheader("⏱ Fraud vs Non-Fraud by Time")
 fig_time, ax_time = plt.subplots(figsize=(8,4))
 sns.kdeplot(df[df["Class"] == 0]["Time"], label="Non-Fraud", shade=True)
 sns.kdeplot(df[df["Class"] == 1]["Time"], label="Fraud", shade=True, color="red")
@@ -138,9 +133,9 @@ ax_time.legend()
 st.pyplot(fig_time)
 
 # ======================================================
-#               SECTION 2: MODEL TRAINING
+# MODEL TRAINING
 # ======================================================
-st.header("🤖 Predictive Modeling with Logistic Regression")
+st.header("🤖 Predictive Modeling (Logistic Regression)")
 
 X = df.drop("Class", axis=1)
 y = df["Class"]
@@ -158,67 +153,46 @@ model.fit(X_train, y_train)
 probs = model.predict_proba(X_test)[:, 1]
 preds = model.predict(X_test)
 
-# ------------------------------------------------------
 # Confusion Matrix
-# ------------------------------------------------------
 st.subheader("🧮 Confusion Matrix")
 cm = confusion_matrix(y_test, preds)
-
 fig_cm, ax_cm = plt.subplots(figsize=(5,4))
 sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", ax=ax_cm)
-ax_cm.set_xlabel("Predicted")
-ax_cm.set_ylabel("Actual")
 st.pyplot(fig_cm)
 
-# ------------------------------------------------------
 # ROC Curve
-# ------------------------------------------------------
 st.subheader("📈 ROC Curve")
 fpr, tpr, _ = roc_curve(y_test, probs)
 auc = roc_auc_score(y_test, probs)
-
 fig_roc, ax_roc = plt.subplots(figsize=(6,4))
 ax_roc.plot(fpr, tpr, label=f"AUC = {auc:.4f}")
-ax_roc.plot([0,1], [0,1], linestyle="--", color="gray")
-ax_roc.set_title("ROC Curve")
 ax_roc.legend()
 st.pyplot(fig_roc)
 
-# ------------------------------------------------------
-# Precision-Recall Curve
-# ------------------------------------------------------
+# Precision Recall
 st.subheader("🎯 Precision-Recall Curve")
 precision, recall, _ = precision_recall_curve(y_test, probs)
-
 fig_pr, ax_pr = plt.subplots(figsize=(6,4))
-ax_pr.plot(recall, precision, color="purple")
-ax_pr.set_title("Precision-Recall Curve")
+ax_pr.plot(recall, precision)
 st.pyplot(fig_pr)
 
 # ======================================================
-#                SECTION 3: FEATURE IMPORTANCE
+# FEATURE IMPORTANCE
 # ======================================================
 st.header("🔥 Top Fraud Predictors")
-
-coef = pd.Series(abs(model.coef_[0]), index=X.columns)
-top10 = coef.sort_values(ascending=False).head(10)
-
-st.write(top10)
-
+coef = pd.Series(abs(model.coef_[0]), index=X.columns).sort_values(ascending=False).head(10)
+st.write(coef)
 fig3, ax3 = plt.subplots(figsize=(8,4))
-sns.barplot(x=top10.values, y=top10.index, palette="viridis", ax=ax3)
+sns.barplot(x=coef.values, y=coef.index, palette="viridis", ax=ax3)
 st.pyplot(fig3)
 
 # ======================================================
-#                  SECTION 4: RISK SEGMENTATION
+# RISK SEGMENTATION
 # ======================================================
 st.header("⚠ Fraud Risk Segmentation")
-
 risk = pd.cut(
-    probs,
-    bins=[0, 0.2, 0.7, 1],
-    labels=["Low Risk", "Medium Risk", "High Risk"],
-    right=False
+    probs, bins=[0, 0.2, 0.7, 1],
+    labels=["Low Risk", "Medium Risk", "High Risk"], right=False
 )
 
 results = pd.DataFrame({
@@ -228,15 +202,14 @@ results = pd.DataFrame({
 })
 
 counts = results["Risk"].value_counts()
-
 colR1, colR2 = st.columns(2)
 
 with colR1:
-    st.subheader("📊 Risk Segment Distribution")
+    st.subheader("📊 Counts per Risk Bucket")
     st.write(counts)
 
 with colR2:
-    st.subheader("🍩 Risk Distribution Donut Chart")
+    st.subheader("🍩 Donut Chart")
     fig_donut, ax_donut = plt.subplots(figsize=(5,5))
     ax_donut.pie(counts.values, labels=counts.index, autopct="%1.1f%%", startangle=90)
     centre = plt.Circle((0,0),0.7,fc='white')
