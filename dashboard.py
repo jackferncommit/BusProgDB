@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+import requests
 
 # ------------------------------------------------------
 # Page setup
@@ -15,6 +16,9 @@ st.write("Dataset automatically loaded from Kaggle. No upload required.")
 DATASET = "mlg-ulb/creditcardfraud"
 CSV_PATH = Path("creditcard.csv")
 USER_AGENT = "streamlit-kaggle-client-v2"
+# Force global requests default UA to avoid None
+requests.utils.default_user_agent = lambda: USER_AGENT
+os.environ.setdefault("KAGGLE_USER_AGENT", USER_AGENT)
 
 
 # ------------------------------------------------------
@@ -76,19 +80,24 @@ def load_data():
     from kaggle.api.kaggle_api_extended import KaggleApi
 
     api = KaggleApi()
+
+    def force_user_agent(session):
+        try:
+            session.headers.update({"User-Agent": USER_AGENT})
+            session.headers.update({"user-agent": USER_AGENT})
+        except Exception:
+            pass
+
     # Set user agent before auth to avoid None header issues.
     try:
         api.user_agent = USER_AGENT
         api.config_values["user_agent"] = USER_AGENT
     except Exception:
         pass
-    api.authenticate()
+    force_user_agent(api._session)
 
-    # Double-ensure the session headers include a non-None User-Agent
-    try:
-        api._session.headers.update({"User-Agent": USER_AGENT})
-    except Exception:
-        pass
+    api.authenticate()
+    force_user_agent(api._session)
 
     api.dataset_download_files(DATASET, path=".", unzip=True, quiet=True, force=True)
 
