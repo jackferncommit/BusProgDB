@@ -1,12 +1,10 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 import os
-import zipfile
-import subprocess
 import json
+from pathlib import Path
 
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
@@ -26,51 +24,71 @@ st.title("💳 Credit Card Fraud Detection Dashboard")
 st.write("Dataset automatically loaded from Kaggle. No upload required.")
 
 # Debug Secret State
-st.write("Secrets loaded:", bool(st.secrets))
-st.write("Has KAGGLE_USERNAME:", "KAGGLE_USERNAME" in st.secrets)
-st.write("Has KAGGLE_KEY:", "KAGGLE_KEY" in st.secrets)
+def get_secret(key: str):
+    try:
+        if key in st.secrets:
+            return st.secrets[key]
+    except Exception:
+        pass
+    return os.getenv(key)
+
+
+def has_secret(key: str) -> bool:
+    value = get_secret(key)
+    return value is not None and str(value).strip() != ""
+
+
+try:
+    secrets_loaded = bool(st.secrets)
+except Exception:
+    secrets_loaded = False
+
+st.write("Secrets loaded:", secrets_loaded)
+st.write("Has KAGGLE_USERNAME:", has_secret("KAGGLE_USERNAME"))
+st.write("Has KAGGLE_KEY:", has_secret("KAGGLE_KEY"))
 
 # ------------------------------------------------------
 # Function: Download dataset from Kaggle
 # ------------------------------------------------------
-@st.cache_data
+@st.cache_data(show_spinner=False)
 def load_data():
     kaggle_dataset = "mlg-ulb/creditcardfraud"   # Official dataset
-    csv_path = "creditcard.csv"
+    csv_path = Path("creditcard.csv")
 
-    # If already downloaded, just load it
-    if os.path.exists(csv_path):
+    if csv_path.exists():
         return pd.read_csv(csv_path)
 
-    st.info("Downloading dataset from Kaggle… (first time only, please wait)")
+    username = get_secret("KAGGLE_USERNAME")
+    key = get_secret("KAGGLE_KEY")
+    if not username or not key:
+        raise RuntimeError("Kaggle credentials not found. Please set KAGGLE_USERNAME and KAGGLE_KEY in Streamlit secrets.")
 
-    # Create Kaggle credentials file
-    kaggle_dir = os.path.expanduser("~/.kaggle")
-    os.makedirs(kaggle_dir, exist_ok=True)
+    kaggle_dir = Path(os.path.expanduser("~/.kaggle"))
+    kaggle_dir.mkdir(parents=True, exist_ok=True)
 
-    kaggle_json_path = os.path.join(kaggle_dir, "kaggle.json")
-    kaggle_credentials = {
-        "username": st.secrets["KAGGLE_USERNAME"],
-        "key": st.secrets["KAGGLE_KEY"]
-    }
+    kaggle_json_path = kaggle_dir / "kaggle.json"
+    kaggle_credentials = {"username": username, "key": key}
+    kaggle_json_path.write_text(json.dumps(kaggle_credentials))
+    try:
+        kaggle_json_path.chmod(0o600)
+    except Exception:
+        # Some platforms (e.g., Windows) may not support chmod the same way; skip if it fails.
+        pass
 
-    with open(kaggle_json_path, "w") as f:
-        json.dump(kaggle_credentials, f)
+    os.environ["KAGGLE_CONFIG_DIR"] = str(kaggle_dir)
+    os.environ["KAGGLE_USERNAME"] = username
+    os.environ["KAGGLE_KEY"] = key
 
-    os.chmod(kaggle_json_path, 0o600)
+    from kaggle.api.kaggle_api_extended import KaggleApi
 
-    st.write("Kaggle JSON Exists:", os.path.exists(kaggle_json_path))
+    api = KaggleApi()
+    api.authenticate()
 
-    # Download using Python module (works on Streamlit Cloud)
-    subprocess.run(
-        ["python3", "-m", "kaggle", "datasets", "download", "-d", kaggle_dataset, "-p", "."],
-        check=True
-    )
+    # Download and unzip dataset (Kaggle handles auth with the config above)
+    api.dataset_download_files(kaggle_dataset, path=".", unzip=True, quiet=False, force=True)
 
-    # Extract dataset
-    zip_name = kaggle_dataset.split("/")[-1] + ".zip"
-    with zipfile.ZipFile(zip_name, "r") as z:
-        z.extractall(".")
+    if not csv_path.exists():
+        raise FileNotFoundError("Download succeeded but creditcard.csv was not found.")
 
     return pd.read_csv(csv_path)
 
@@ -79,11 +97,15 @@ def load_data():
 # Load the dataset
 # ------------------------------------------------------
 try:
-    df = load_data()
+    with st.spinner("Downloading dataset from Kaggle… (first run only, please wait)"):
+        df = load_data()
 except Exception as e:
-    st.error("❌ Failed to download or load dataset. Check Streamlit Secrets and Kaggle credentials.")
+    st.error("❌ Failed to download or load dataset. Check Streamlit secrets, Kaggle credentials, and dataset access.")
     st.write("Error details:", str(e))
     st.stop()
+
+kaggle_json_path = Path(os.path.expanduser("~/.kaggle/kaggle.json"))
+st.write("Kaggle JSON Exists:", kaggle_json_path.exists())
 
 # Sidebar Overview
 st.sidebar.header("Dataset Overview")
