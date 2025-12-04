@@ -27,6 +27,7 @@ st.write("Dataset automatically loaded from Kaggle. No upload required.")
 DATASET = "mlg-ulb/creditcardfraud"
 CSV_PATH = Path("creditcard.csv")
 KAGGLE_USER_AGENT = "streamlit-kaggle-client-v1"
+os.environ.setdefault("KAGGLE_USER_AGENT", KAGGLE_USER_AGENT)
 
 
 # ------------------------------------------------------
@@ -122,11 +123,19 @@ def load_data():
     api = KaggleApi()
     # Ensure user_agent is set before authenticate to avoid None header errors.
     api.config_values["user_agent"] = KAGGLE_USER_AGENT
+    try:
+        api._session.headers.update({"User-Agent": KAGGLE_USER_AGENT})
+    except Exception:
+        pass
     api.authenticate()
     try:
         api.set_config_value("user_agent", KAGGLE_USER_AGENT)
     except Exception:
         # Older kaggle versions may not expose this; safe to ignore.
+        pass
+    try:
+        api._session.headers.update({"User-Agent": KAGGLE_USER_AGENT})
+    except Exception:
         pass
 
     api.dataset_download_files(DATASET, path=".", unzip=True, quiet=True, force=True)
