@@ -46,9 +46,10 @@ except Exception:
 st.write("Secrets loaded:", secrets_loaded)
 st.write("Has KAGGLE_USERNAME:", has_secret("KAGGLE_USERNAME"))
 st.write("Has KAGGLE_KEY:", has_secret("KAGGLE_KEY"))
+st.write("Has KAGGLE_API_TOKEN:", has_secret("KAGGLE_API_TOKEN"))
 
 # ------------------------------------------------------
-# Function: Download dataset from Kaggle
+# Function: Download dataset from Kaggles
 # ------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def load_data():
@@ -58,17 +59,21 @@ def load_data():
     if csv_path.exists():
         return pd.read_csv(csv_path)
 
+    token = get_secret("KAGGLE_API_TOKEN")
     username = get_secret("KAGGLE_USERNAME")
     key = get_secret("KAGGLE_KEY")
-    if not username or not key:
-        raise RuntimeError("Kaggle credentials not found. Please set KAGGLE_USERNAME and KAGGLE_KEY in Streamlit secrets.")
+    if token:
+        credentials = {"token": token}
+    elif username and key:
+        credentials = {"username": username, "key": key}
+    else:
+        raise RuntimeError("Kaggle credentials not found. Please set KAGGLE_API_TOKEN, or KAGGLE_USERNAME and KAGGLE_KEY, in Streamlit secrets.")
 
     kaggle_dir = Path(os.path.expanduser("~/.kaggle"))
     kaggle_dir.mkdir(parents=True, exist_ok=True)
 
     kaggle_json_path = kaggle_dir / "kaggle.json"
-    kaggle_credentials = {"username": username, "key": key}
-    kaggle_json_path.write_text(json.dumps(kaggle_credentials))
+    kaggle_json_path.write_text(json.dumps(credentials))
     try:
         kaggle_json_path.chmod(0o600)
     except Exception:
@@ -76,16 +81,29 @@ def load_data():
         pass
 
     os.environ["KAGGLE_CONFIG_DIR"] = str(kaggle_dir)
-    os.environ["KAGGLE_USERNAME"] = username
-    os.environ["KAGGLE_KEY"] = key
+    os.environ.setdefault("KAGGLE_USER_AGENT", "streamlit-kaggle-client")
+
+    if token:
+        os.environ["KAGGLE_API_TOKEN"] = str(token)
+        # Remove legacy envs if present so the client uses the token path.
+        os.environ.pop("KAGGLE_USERNAME", None)
+        os.environ.pop("KAGGLE_KEY", None)
+    else:
+        os.environ["KAGGLE_USERNAME"] = str(username)
+        os.environ["KAGGLE_KEY"] = str(key)
 
     from kaggle.api.kaggle_api_extended import KaggleApi
 
     api = KaggleApi()
     api.authenticate()
+    try:
+        api.set_config_value("user_agent", "streamlit-kaggle-client")
+    except Exception:
+        # Older kaggle versions may not expose set_config_value; ignore if missing.
+        pass
 
     # Download and unzip dataset (Kaggle handles auth with the config above)
-    api.dataset_download_files(kaggle_dataset, path=".", unzip=True, quiet=False, force=True)
+    api.dataset_download_files(kaggle_dataset, path=".", unzip=True, quiet=True, force=True)
 
     if not csv_path.exists():
         raise FileNotFoundError("Download succeeded but creditcard.csv was not found.")
